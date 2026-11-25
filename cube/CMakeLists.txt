@@ -16,41 +16,69 @@
 # ~~~
 
 if(APPLE)
-    option(APPLE_USE_SYSTEM_ICD "Use system Vulkan ICD discovery instead of bundling MoltenVK" OFF)
+    option(APPLE_USE_SYSTEM_ICD "Use system Vulkan ICD discovery instead of bundling drivers" OFF)
+
+    # Remove drivers left behind when reconfiguring an existing app bundle.
+    set(CUBE_UNUSED_ICD_FILES
+        Frameworks/libMoltenVK.dylib
+        Resources/vulkan/icd.d/MoltenVK_icd.json
+        Frameworks/libvulkan_kosmickrisp.dylib
+        Resources/vulkan/icd.d/libkosmickrisp_icd.json)
 
     if(APPLE_USE_SYSTEM_ICD)
         message(STATUS "Using system Vulkan loader for ICD discovery")
     else()
-        set(MOLTENVK_REPO_ROOT "MOLTENVK-NOTFOUND" CACHE PATH "Absolute path to a MoltenVK repo directory")
-        if(NOT MOLTENVK_REPO_ROOT)
-            message(FATAL_ERROR "Must define location of MoltenVK repo -- see BUILD.md")
+        # Select drivers for the target architectures, including universal builds.
+        set(cube_macos_architectures ${CMAKE_OSX_ARCHITECTURES})
+        if(NOT cube_macos_architectures)
+            set(cube_macos_architectures ${CMAKE_SYSTEM_PROCESSOR})
         endif()
-        message(STATUS "Using MoltenVK repo location at ${MOLTENVK_REPO_ROOT}")
 
-        # Source for the MoltenVK ICD library and JSON file
-        set(MOLTENVK_DIR ${MOLTENVK_REPO_ROOT})
+        set(CUBE_ICD_LIBRARIES)
+        set(CUBE_ICD_MANIFESTS)
+        set(cube_icd_sources)
+        if("arm64" IN_LIST cube_macos_architectures)
+            set(KOSMICKRISP_PATH "" CACHE PATH "SDK library directory containing libvulkan_kosmickrisp.dylib")
+            if(DEFINED ENV{VULKAN_SDK} AND NOT "$ENV{VULKAN_SDK}" STREQUAL "")
+                set(cube_kosmickrisp_path "$ENV{VULKAN_SDK}/lib")
+            else()
+                set(cube_kosmickrisp_path "${KOSMICKRISP_PATH}")
+            endif()
+            if(NOT cube_kosmickrisp_path)
+                message(FATAL_ERROR "Set VULKAN_SDK or KOSMICKRISP_PATH to locate KosmicKrisp -- see BUILD.md")
+            endif()
+            get_filename_component(cube_kosmickrisp_path "${cube_kosmickrisp_path}" ABSOLUTE)
+            message(STATUS "Using KosmicKrisp from ${cube_kosmickrisp_path}")
+            list(APPEND CUBE_ICD_LIBRARIES "${cube_kosmickrisp_path}/libvulkan_kosmickrisp.dylib")
+            list(APPEND cube_icd_sources "${cube_kosmickrisp_path}/../share/vulkan/icd.d/libkosmickrisp_icd.json")
+        endif()
 
-        # MoltenVK JSON File
-        execute_process(COMMAND mkdir -p ${PROJECT_BINARY_DIR}/staging-json)
-        execute_process(COMMAND sed -e "/\"library_path\":/s$:[[:space:]]*\"[[:space:]]*[\\.\\/]*$: \"..\\/..\\/..\\/Frameworks\\/$"
-                                ${MOLTENVK_DIR}/MoltenVK/icd/MoltenVK_icd.json
-                        OUTPUT_FILE ${PROJECT_BINARY_DIR}/staging-json/MoltenVK_icd.json)
+        if("x86_64" IN_LIST cube_macos_architectures)
+            set(MOLTENVK_REPO_ROOT "MOLTENVK-NOTFOUND" CACHE PATH "Absolute path to a MoltenVK repo directory")
+            if(NOT MOLTENVK_REPO_ROOT)
+                message(FATAL_ERROR "Must define location of MoltenVK repo -- see BUILD.md")
+            endif()
+            message(STATUS "Using MoltenVK repo location at ${MOLTENVK_REPO_ROOT}")
+            list(APPEND CUBE_ICD_LIBRARIES "${MOLTENVK_REPO_ROOT}/Package/Release/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib")
+            list(APPEND cube_icd_sources "${MOLTENVK_REPO_ROOT}/MoltenVK/icd/MoltenVK_icd.json")
+        endif()
 
-        # ~~~
-        # Modify the ICD JSON file to adjust the library path.
-        # The ICD JSON file goes in the Resources/vulkan/icd.d directory, so adjust the
-        # library_path to the relative path to the Frameworks directory in the bundle.
-        # The regex does: substitute ':<whitespace>"<whitespace><all occurences of . and />' with:
-        # ': "../../../Frameworks/'
-        # ~~~
-        add_custom_target(MoltenVK_icd-staging-json ALL
-            COMMAND mkdir -p ${PROJECT_BINARY_DIR}/staging-json
-            COMMAND sed -e "/\"library_path\":/s$:[[:space:]]*\"[[:space:]]*[\\.\\/]*$: \"..\\/..\\/..\\/Frameworks\\/$"
-                    ${MOLTENVK_DIR}/MoltenVK/icd/MoltenVK_icd.json > ${PROJECT_BINARY_DIR}/staging-json/MoltenVK_icd.json
-            VERBATIM
-            DEPENDS "${MOLTENVK_DIR}/MoltenVK/icd/MoltenVK_icd.json"
-        )
-        set_source_files_properties(${PROJECT_BINARY_DIR}/staging-json/MoltenVK_icd.json PROPERTIES GENERATED TRUE)
+        # Preserve each SDK/driver manifest's metadata and point it into the bundle.
+        file(MAKE_DIRECTORY "${PROJECT_BINARY_DIR}/staging-json")
+        foreach(library manifest IN ZIP_LISTS CUBE_ICD_LIBRARIES cube_icd_sources)
+            if(NOT EXISTS "${library}" OR NOT EXISTS "${manifest}")
+                message(FATAL_ERROR "Bundled Vulkan driver requires both ${library} and ${manifest}")
+            endif()
+            get_filename_component(library_name "${library}" NAME)
+            get_filename_component(manifest_name "${manifest}" NAME)
+            set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${manifest}")
+            file(READ "${manifest}" manifest_json)
+            string(JSON manifest_json SET "${manifest_json}" ICD library_path "\"../../../Frameworks/${library_name}\"")
+            set(staged_manifest "${PROJECT_BINARY_DIR}/staging-json/${manifest_name}")
+            file(WRITE "${staged_manifest}" "${manifest_json}\n")
+            list(APPEND CUBE_ICD_MANIFESTS "${staged_manifest}")
+            list(REMOVE_ITEM CUBE_UNUSED_ICD_FILES "Frameworks/${library_name}" "Resources/vulkan/icd.d/${manifest_name}")
+        endforeach()
     endif()
 
     find_library(COCOA NAMES Cocoa)

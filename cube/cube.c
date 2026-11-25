@@ -3987,7 +3987,6 @@ static void demo_init_vk(struct demo *demo) {
     /* Look for instance extensions */
     VkBool32 surfaceExtFound = false;
     VkBool32 platformSurfaceExtFound = false;
-    bool portabilityEnumerationActive = false;
     memset(demo->extension_names, 0, sizeof(demo->extension_names));
 
     err = vkEnumerateInstanceExtensionProperties(NULL, &instance_extension_count, NULL);
@@ -4073,12 +4072,12 @@ static void demo_init_vk(struct demo *demo) {
                     demo->extension_names[demo->enabled_extension_count++] = VK_EXT_DEBUG_UTILS_EXTENSION_NAME;
                 }
             }
-            // We want cube to be able to enumerate drivers that support the portability_subset extension, so we have to enable
-            // the portability enumeration extension.
+            // This extension is now legacy and is only needed on intel Mac's using MoltenVK
+#if defined(__APPLE__) && defined(__x86_64__)
             if (!strcmp(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, instance_extensions[i].extensionName)) {
-                portabilityEnumerationActive = true;
                 demo->extension_names[demo->enabled_extension_count++] = VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME;
             }
+#endif
             assert(demo->enabled_extension_count < 64);
         }
 
@@ -4199,7 +4198,7 @@ static void demo_init_vk(struct demo *demo) {
     VkInstanceCreateInfo inst_info = {
         .sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
         .pNext = NULL,
-        .flags = (portabilityEnumerationActive ? VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR : 0),
+        .flags = 0,
         .pApplicationInfo = &app,
         .enabledLayerCount = demo->enabled_layer_count,
         .ppEnabledLayerNames = (const char *const *)instance_validation_layers,
@@ -4366,9 +4365,6 @@ static void demo_select_physical_device(struct demo *demo) {
             if (!strcmp(VK_KHR_SWAPCHAIN_EXTENSION_NAME, device_extensions[i].extensionName)) {
                 swapchainExtFound = 1;
                 demo->extension_names[demo->enabled_extension_count++] = VK_KHR_SWAPCHAIN_EXTENSION_NAME;
-            }
-            if (!strcmp("VK_KHR_portability_subset", device_extensions[i].extensionName)) {
-                demo->extension_names[demo->enabled_extension_count++] = "VK_KHR_portability_subset";
             }
             assert(demo->enabled_extension_count < 64);
         }

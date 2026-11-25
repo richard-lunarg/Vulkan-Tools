@@ -163,6 +163,31 @@ NOTE: Windows developers don't have to develop in Visual Studio. Visual Studio j
 
 NOTE: MacOS developers don't have to develop in Xcode. Xcode just helps streamlining the needed C++ toolchain requirements (compilers, linker, etc). Similar to Visual Studio on Windows.
 
+### Bundled Vulkan drivers
+
+The macOS cube bundles use prebuilt KosmicKrisp for `arm64` and MoltenVK for
+`x86_64`. Universal builds include both drivers. Target architectures are selected
+by `CMAKE_OSX_ARCHITECTURES`, or the target system architecture when it is unset.
+
+For KosmicKrisp, source the Vulkan SDK's environment script before configuring:
+
+```sh
+source /path/to/VulkanSDK/version/setup-env.sh
+```
+
+The script sets `VULKAN_SDK` to the SDK's `macOS` directory. CMake uses
+`$VULKAN_SDK/lib/libvulkan_kosmickrisp.dylib` and the ICD manifest under
+`$VULKAN_SDK/share/vulkan/icd.d/`.
+
+When `VULKAN_SDK` is unset, pass `-D KOSMICKRISP_PATH=/path/to/SDK/macOS/lib`.
+This path must be the SDK library directory; its adjacent `../share/vulkan/icd.d/`
+directory must contain `libkosmickrisp_icd.json`. A nonempty `VULKAN_SDK` takes
+precedence over `KOSMICKRISP_PATH`. KosmicKrisp is copied, never downloaded or built.
+
+Intel builds continue to use `MOLTENVK_REPO_ROOT` pointing to a prepared MoltenVK
+repository. `UPDATE_DEPS=ON` still prepares MoltenVK through the dependency helper.
+Set `APPLE_USE_SYSTEM_ICD=ON` to omit bundled drivers and use loader discovery.
+
 ### Xcode Generator
 
 To create and open an Xcode project:

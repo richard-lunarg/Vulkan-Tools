@@ -1602,7 +1602,6 @@ void Demo::init_vk() {
     /* Look for instance extensions */
     vk::Bool32 surfaceExtFound = VK_FALSE;
     vk::Bool32 platformSurfaceExtFound = VK_FALSE;
-    bool portabilityEnumerationActive = false;
 
     // Some platforms (for example, Fuchsia) may have their WSI instance
     // extension in layers and require the client to manually specify the
@@ -1625,11 +1624,11 @@ void Demo::init_vk() {
         } else if (!strcmp(VK_EXT_DEBUG_UTILS_EXTENSION_NAME, extension.extensionName)) {
             use_debug_messenger = true;
             enabled_instance_extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+#if defined(__APPLE__) && defined(__x86_64__)
         } else if (!strcmp(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME, extension.extensionName)) {
-            // We want cube to be able to enumerate drivers that support the portability_subset extension, so we have to enable the
-            // portability enumeration extension.
-            portabilityEnumerationActive = true;
+            // This extension is now legacy and is only needed on Intel Macs running MoltenVK
             enabled_instance_extensions.push_back(VK_KHR_PORTABILITY_ENUMERATION_EXTENSION_NAME);
+#endif
         } else if (!strcmp(VK_KHR_SURFACE_EXTENSION_NAME, extension.extensionName)) {
             surfaceExtFound = 1;
             enabled_instance_extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
@@ -1816,8 +1815,7 @@ void Demo::init_vk() {
                          .setEngineVersion(0)
                          .setApiVersion(VK_API_VERSION_1_0);
     auto const inst_info = vk::InstanceCreateInfo()
-                               .setFlags(portabilityEnumerationActive ? vk::InstanceCreateFlagBits::eEnumeratePortabilityKHR
-                                                                      : static_cast<vk::InstanceCreateFlagBits>(0))
+                               .setFlags(static_cast<vk::InstanceCreateFlagBits>(0))
                                .setPNext((use_debug_messenger && validate) ? &debug_utils_create_info : nullptr)
                                .setPApplicationInfo(&app)
                                .setPEnabledLayerNames(enabled_layers)
@@ -1956,8 +1954,6 @@ void Demo::select_physical_device() {
         if (!strcmp(VK_KHR_SWAPCHAIN_EXTENSION_NAME, extension.extensionName)) {
             swapchainExtFound = 1;
             enabled_device_extensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
-        } else if (!strcmp("VK_KHR_portability_subset", extension.extensionName)) {
-            enabled_device_extensions.push_back("VK_KHR_portability_subset");
         }
     }
 

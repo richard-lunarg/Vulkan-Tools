@@ -19,7 +19,7 @@
 
 set(cubepp_RESOURCES ${CMAKE_CURRENT_LIST_DIR}/Resources/VulkanIcon.icns)
 if(NOT APPLE_USE_SYSTEM_ICD)
-    list(APPEND cubepp_RESOURCES ${PROJECT_BINARY_DIR}/staging-json/MoltenVK_icd.json)
+    list(APPEND cubepp_RESOURCES ${CUBE_ICD_MANIFESTS})
 endif()
 
 # Have Xcode handle the Storyboard
@@ -54,10 +54,6 @@ if(NOT XCODE)
                        COMMENT "Compiling storyboard")
 endif()
 
-if(NOT APPLE_USE_SYSTEM_ICD)
-    add_dependencies(vkcubepp MoltenVK_icd-staging-json)
-endif()
-
 # Include demo source code dir because the MacOS vkcubepp's Objective-C source includes the "original" vkcubepp application C++ source
 # code.
 target_include_directories(vkcubepp PRIVATE ${CMAKE_CURRENT_LIST_DIR})
@@ -73,19 +69,20 @@ set_target_properties(vkcubepp PROPERTIES MACOSX_BUNDLE_INFO_PLIST ${CMAKE_CURRE
 # list of all the resource files.
 set_source_files_properties(${cubepp_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources")
 if(NOT APPLE_USE_SYSTEM_ICD)
-    set_source_files_properties("${PROJECT_BINARY_DIR}/staging-json/MoltenVK_icd.json"
-                                PROPERTIES
-                                MACOSX_PACKAGE_LOCATION
-                                "Resources/vulkan/icd.d")
+    set_source_files_properties(${CUBE_ICD_MANIFESTS}
+                                PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/vulkan/icd.d")
 
-    # Copy the MoltenVK lib into the bundle.
-    if(XCODE)
-        add_custom_command(TARGET vkcubepp POST_BUILD
-                           COMMAND ${CMAKE_COMMAND} -E copy "${MOLTENVK_DIR}/Package/Release/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
-                                   ${CMAKE_CURRENT_BINARY_DIR}/$<CONFIG>/vkcubepp.app/Contents/Frameworks/libMoltenVK.dylib)
-    else()
-        add_custom_command(TARGET vkcubepp POST_BUILD
-                           COMMAND ${CMAKE_COMMAND} -E copy "${MOLTENVK_DIR}/Package/Release/MoltenVK/dynamic/dylib/macOS/libMoltenVK.dylib"
-                                   ${CMAKE_CURRENT_BINARY_DIR}/vkcubepp.app/Contents/Frameworks/libMoltenVK.dylib)
-    endif()
+    # Recopy the prebuilt drivers when their libraries change.
+    set_property(TARGET vkcubepp APPEND PROPERTY LINK_DEPENDS "${CUBE_ICD_LIBRARIES}")
+    add_custom_command(TARGET vkcubepp POST_BUILD
+                       COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_BUNDLE_DIR:vkcubepp>/Contents/Frameworks"
+                       COMMAND ${CMAKE_COMMAND} -E copy_if_different ${CUBE_ICD_LIBRARIES}
+                               "$<TARGET_BUNDLE_DIR:vkcubepp>/Contents/Frameworks"
+                       VERBATIM)
 endif()
+
+foreach(unused_file IN LISTS CUBE_UNUSED_ICD_FILES)
+    add_custom_command(TARGET vkcubepp POST_BUILD
+                       COMMAND ${CMAKE_COMMAND} -E rm -f "$<TARGET_BUNDLE_DIR:vkcubepp>/Contents/${unused_file}"
+                       VERBATIM)
+endforeach()
